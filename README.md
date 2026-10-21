@@ -12,6 +12,7 @@
 - **Zero external dependencies** — only the Rust standard library.
 - **Small release binary** — `opt-level = "z"`, fat LTO, one codegen unit, `panic = abort`, and stripped symbols.
 - **Static CRT on Windows** — MSVC builds link `libcmt` into the executable and do not need `vcruntime140.dll`. They still load Windows system libraries (`kernel32.dll`, `bcrypt.dll`).
+- **Windows file version** — `guid.exe` embeds a version resource. File version and product version follow the package version (`2.0.0` is shown as `2.0`).
 - **Portable** — Windows, Linux, and macOS.
 
 ## Output Format
@@ -99,6 +100,7 @@ Each archive contains `guid.exe`, built with the size-first release profile and 
 guid/
 ├── src/
 │   └── main.rs                 # Program and tests
+├── build.rs                    # Windows VERSIONINFO resource
 ├── Cargo.toml                  # Package manifest and size-first release profile
 ├── Cargo.lock                  # Locked dependency graph (no third-party crates)
 ├── .cargo/config.toml          # Static CRT flags for Windows MSVC

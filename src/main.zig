@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
     hexSlice(buf[10..], hex[24..]);
 
     var stdout_buf: [512]u8 = undefined;
-    var stdout_writer = Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     try stdout.print("{{{s}}}\n", .{hex});

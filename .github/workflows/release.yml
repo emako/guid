@@ -24,14 +24,14 @@ jobs:
         include:
           - os: windows-latest
             targets: |
-              x86_64-windows-gnu guid-windows-x86_64
-              aarch64-windows-gnu guid-windows-aarch64
+              x86_64-pc-windows-msvc guid-windows-x86_64
+              aarch64-pc-windows-msvc guid-windows-aarch64
     steps:
       - uses: actions/checkout@v7
 
-      - uses: mlugg/setup-zig@v2
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          version: 0.17.0
+          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
 
       - name: Build
         env:
@@ -40,6 +40,10 @@ jobs:
           set -euo pipefail
           mkdir -p upload stage
 
+          # Static CRT flags come from .cargo/config.toml. Do not set RUSTFLAGS here;
+          # an environment RUSTFLAGS replaces those flags instead of appending to them.
+          cargo test --locked --target x86_64-pc-windows-msvc
+
           # <runtime>.zip contains <runtime>/guid.exe (Windows) or <runtime>/guid.
           # The binary keeps the name produced by the build so it can sit on PATH.
           while read -r target runtime; do
@@ -47,12 +51,12 @@ jobs:
               continue
             fi
             echo "Building ${target} -> ${runtime}.zip"
-            zig build -Doptimize=ReleaseSafe -Dtarget="$target" || exit 1
+            cargo build --locked --release --target "$target" || exit 1
             if [[ "$target" == *-windows-* ]]; then
-              src="zig-out/bin/guid.exe"
+              src="target/${target}/release/guid.exe"
               bin="guid.exe"
             else
-              src="zig-out/bin/guid"
+              src="target/${target}/release/guid"
               bin="guid"
             fi
             mkdir -p "stage/${runtime}"
@@ -88,6 +92,8 @@ jobs:
               exit 1
             fi
           fi
+
+          python .github/check_static_crt.py stage
 
       - uses: actions/upload-artifact@v7
         with:

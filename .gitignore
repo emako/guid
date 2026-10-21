@@ -1,4 +1,1 @@
-zig-out/
-.zig-cache/
-*.exe
-*.pdb
+/target

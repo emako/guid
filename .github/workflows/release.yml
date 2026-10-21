@@ -1,0 +1,141 @@
+name: Release
+
+# Branch push: replace the rolling prerelease named "latest".
+# Tag push: publish a release whose version is the tag name, with no format check.
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref_type == 'tag' && format('release-{0}', github.ref) || 'preview-latest' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            targets: |
+              x86_64-windows-gnu guid-windows-x86_64.exe
+              aarch64-windows-gnu guid-windows-aarch64.exe
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Build
+        env:
+          TARGETS: ${{ matrix.targets }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+
+          while read -r target asset; do
+            if [ -z "${target:-}" ]; then
+              continue
+            fi
+            echo "Building ${target} -> ${asset}"
+            zig build -Doptimize=ReleaseSafe -Dtarget="$target" || exit 1
+            src="zig-out/bin/guid"
+            if [[ "$asset" == *.exe ]]; then
+              src="zig-out/bin/guid.exe"
+            fi
+            cp "$src" "upload/$asset" || exit 1
+            if [[ "$asset" != *.exe ]]; then
+              chmod +x "upload/$asset"
+            fi
+          done <<< "$TARGETS"
+
+          host="$(uname -s)-$(uname -m)"
+          case "$host" in
+            Linux-x86_64) smoke="upload/guid-linux-x86_64" ;;
+            Linux-aarch64 | Linux-arm64) smoke="upload/guid-linux-aarch64" ;;
+            Darwin-arm64) smoke="upload/guid-macos-aarch64" ;;
+            Darwin-x86_64) smoke="upload/guid-macos-x86_64" ;;
+            MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) smoke="upload/guid-windows-x86_64.exe" ;;
+            *) smoke="" ;;
+          esac
+
+          if [ -n "$smoke" ]; then
+            out="$("$smoke")"
+            printf 'smoke: %s\n' "$out"
+            if [[ ! "$out" =~ ^\{[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}$ ]]; then
+              echo "Smoke test failed: unexpected output" >&2
+              exit 1
+            fi
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}
+          path: upload/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(find dist -type f | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No build artifacts to publish." >&2
+            exit 1
+          fi
+
+          (
+            cd dist
+            sha256sum -- *
+          ) > SHA256SUMS
+          mv SHA256SUMS dist/SHA256SUMS
+          files+=(dist/SHA256SUMS)
+
+          notes="$(mktemp)"
+          if [ "$REF_TYPE" = "tag" ]; then
+            version="$REF_NAME"
+            printf 'Release of guid.\n\nVersion: %s\nCommit: %s\n' "$version" "$SHA" > "$notes"
+            if gh release view "$version" >/dev/null 2>&1; then
+              gh release upload "$version" "${files[@]}" --clobber
+              gh release edit "$version" --title "$version" --notes-file "$notes"
+            else
+              gh release create "$version" "${files[@]}" \
+                --target "$SHA" \
+                --title "$version" \
+                --notes-file "$notes"
+            fi
+          else
+            printf 'Preview build of guid.\n\nVersion: latest\nCommit: %s\nRef: %s\n' "$SHA" "$REF_NAME" > "$notes"
+            gh release delete latest --yes --cleanup-tag || true
+            gh release create latest "${files[@]}" \
+              --target "$SHA" \
+              --title latest \
+              --notes-file "$notes" \
+              --prerelease \
+              --latest=false
+          fi

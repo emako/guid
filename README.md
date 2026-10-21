@@ -2,7 +2,7 @@
   <img src="branding/logo.svg" alt="guid logo" width="128" height="128">
 </p>
 
-# guid
+# GUID
 
 **Version 2.0** — a minimal, zero-dependency CLI tool for generating **RFC 4122-compliant UUID v4** (also known as GUID) strings, written in Rust.
 

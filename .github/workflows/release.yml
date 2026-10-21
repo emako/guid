@@ -24,8 +24,8 @@ jobs:
         include:
           - os: windows-latest
             targets: |
-              x86_64-windows-gnu guid-windows-x86_64.exe
-              aarch64-windows-gnu guid-windows-aarch64.exe
+              x86_64-windows-gnu guid-windows-x86_64
+              aarch64-windows-gnu guid-windows-aarch64
     steps:
       - uses: actions/checkout@v7
 
@@ -38,31 +38,45 @@ jobs:
           TARGETS: ${{ matrix.targets }}
         run: |
           set -euo pipefail
-          mkdir -p upload
+          mkdir -p upload stage
 
-          while read -r target asset; do
+          # <runtime>.zip contains <runtime>/guid.exe (Windows) or <runtime>/guid.
+          # The binary keeps the name produced by the build so it can sit on PATH.
+          while read -r target runtime; do
             if [ -z "${target:-}" ]; then
               continue
             fi
-            echo "Building ${target} -> ${asset}"
+            echo "Building ${target} -> ${runtime}.zip"
             zig build -Doptimize=ReleaseSafe -Dtarget="$target" || exit 1
-            src="zig-out/bin/guid"
-            if [[ "$asset" == *.exe ]]; then
+            if [[ "$target" == *-windows-* ]]; then
               src="zig-out/bin/guid.exe"
+              bin="guid.exe"
+            else
+              src="zig-out/bin/guid"
+              bin="guid"
             fi
-            cp "$src" "upload/$asset" || exit 1
-            if [[ "$asset" != *.exe ]]; then
-              chmod +x "upload/$asset"
+            mkdir -p "stage/${runtime}"
+            cp "$src" "stage/${runtime}/${bin}" || exit 1
+            if [[ "$bin" != *.exe ]]; then
+              chmod +x "stage/${runtime}/${bin}"
+            fi
+
+            archive="upload/${runtime}.zip"
+            rm -f "$archive"
+            if command -v zip >/dev/null 2>&1; then
+              (cd stage && zip -r -X "../${archive}" "$runtime")
+            else
+              tar.exe -a -c -f "$archive" -C stage "$runtime"
             fi
           done <<< "$TARGETS"
 
           host="$(uname -s)-$(uname -m)"
           case "$host" in
-            Linux-x86_64) smoke="upload/guid-linux-x86_64" ;;
-            Linux-aarch64 | Linux-arm64) smoke="upload/guid-linux-aarch64" ;;
-            Darwin-arm64) smoke="upload/guid-macos-aarch64" ;;
-            Darwin-x86_64) smoke="upload/guid-macos-x86_64" ;;
-            MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) smoke="upload/guid-windows-x86_64.exe" ;;
+            Linux-x86_64) smoke="stage/guid-linux-x86_64/guid" ;;
+            Linux-aarch64 | Linux-arm64) smoke="stage/guid-linux-aarch64/guid" ;;
+            Darwin-arm64) smoke="stage/guid-macos-aarch64/guid" ;;
+            Darwin-x86_64) smoke="stage/guid-macos-x86_64/guid" ;;
+            MINGW*-x86_64 | MSYS*-x86_64 | CYGWIN*-x86_64) smoke="stage/guid-windows-x86_64/guid.exe" ;;
             *) smoke="" ;;
           esac
 

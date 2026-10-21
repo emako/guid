@@ -106,9 +106,10 @@ guid/
 ├── .github/workflows/release.yml
 ├── branding/
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 ## License
 
-[MIT](LICENSE) (or choose your own — this project does not yet include a license file).
+[MIT](LICENSE)
